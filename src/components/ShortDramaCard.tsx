@@ -5,18 +5,11 @@
 import { Play, Star, Heart, ExternalLink, PlayCircle, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { memo, useEffect, useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { useLongPress } from '@/hooks/useLongPress';
-import MobileActionSheet from '@/components/MobileActionSheet';
-import AIRecommendModal from '@/components/AIRecommendModal';
-
-import { ShortDramaItem } from '@/lib/types';
-import {
-  SHORTDRAMA_CACHE_EXPIRE,
-  getCacheKey,
-  getCache,
-  setCache,
-} from '@/lib/shortdrama-cache';
+import { useToggleFavoriteMutation } from '@/hooks/useFavoritesMutations';
+import { isAIRecommendFeatureDisabled } from '@/lib/ai-recommend.client';
 import {
   isFavorited,
   saveFavorite,
@@ -24,6 +17,16 @@ import {
   generateStorageKey,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
+import {
+  SHORTDRAMA_CACHE_EXPIRE,
+  getCacheKey,
+  getCache,
+  setCache,
+} from '@/lib/shortdrama-cache';
+import { ShortDramaItem } from '@/lib/types';
+
+import AIRecommendModal from '@/components/AIRecommendModal';
+import MobileActionSheet from '@/components/MobileActionSheet';
 
 interface ShortDramaCardProps {
   drama: ShortDramaItem;
@@ -39,6 +42,9 @@ function ShortDramaCard({
   aiEnabled: aiEnabledProp,
 }: ShortDramaCardProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
+
   const [realEpisodeCount, setRealEpisodeCount] = useState<number>(drama.episode_count);
   const [showEpisodeCount, setShowEpisodeCount] = useState(drama.episode_count > 1); // 如果初始集数>1就显示
   const [imageLoaded, setImageLoaded] = useState(false); // 图片加载状态
@@ -48,7 +54,7 @@ function ShortDramaCard({
 
   // AI功能状态：优先使用父组件传递的值，否则自己检测
   const [aiEnabledLocal, setAiEnabledLocal] = useState(false);
-  const [aiCheckCompleteLocal, setAiCheckCompleteLocal] = useState(false);
+  const [, setAiCheckCompleteLocal] = useState(false);
 
   // 实际使用的AI状态（优先父组件prop）
   const aiEnabled = aiEnabledProp !== undefined ? aiEnabledProp : aiEnabledLocal;
@@ -87,6 +93,12 @@ function ShortDramaCard({
   useEffect(() => {
     // 如果父组件已传递aiEnabled，跳过本地检测
     if (aiEnabledProp !== undefined) {
+      return;
+    }
+
+    if (isAIRecommendFeatureDisabled()) {
+      setAiEnabledLocal(false);
+      setAiCheckCompleteLocal(true);
       return;
     }
 
@@ -195,20 +207,18 @@ function ShortDramaCard({
     }
   }, [drama.id, drama.episode_count, drama.name]);
 
-  // 处理收藏切换
+  // 处理收藏切换 - 使用 TanStack Query mutation
   const handleToggleFavorite = useCallback(
     async (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
 
-      try {
-        if (favorited) {
-          // 取消收藏
-          await deleteFavorite(source, id);
-          setFavorited(false);
-        } else {
-          // 添加收藏
-          await saveFavorite(source, id, {
+      toggleFavoriteMutation.mutate(
+        {
+          source,
+          id,
+          isFavorited: favorited,
+          favorite: {
             title: drama.name,
             source_name: '短剧',
             year: '',
@@ -216,15 +226,32 @@ function ShortDramaCard({
             total_episodes: realEpisodeCount,
             save_time: Date.now(),
             search_title: drama.name,
-          });
-          setFavorited(true);
+          },
+        },
+        {
+          onSuccess: () => {
+            setFavorited(!favorited);
+          },
+          onError: (err) => {
+            console.error('切换收藏状态失败:', err);
+          },
         }
-      } catch (err) {
-        console.error('切换收藏状态失败:', err);
-      }
+      );
     },
-    [favorited, source, id, drama.name, drama.cover, realEpisodeCount]
+    [favorited, source, id, drama.name, drama.cover, realEpisodeCount, toggleFavoriteMutation]
   );
+
+  // 🚀 数据预取 - 在 hover 时预取收藏数据
+  const handlePrefetch = useCallback(() => {
+    // 预取收藏数据
+    queryClient.prefetchQuery({
+      queryKey: ['favorites'],
+      queryFn: async () => {
+        return queryClient.getQueryData(['favorites']) || {};
+      },
+      staleTime: 10 * 1000, // 10秒内不重复预取
+    });
+  }, [queryClient]);
 
   // 处理长按事件
   const handleLongPress = useCallback(() => {
@@ -271,6 +298,8 @@ function ShortDramaCard({
       <div
         className={`group relative ${className} transition-all duration-300 ease-in-out hover:scale-[1.05] hover:z-30 hover:shadow-2xl cursor-pointer`}
         onClick={handleClick}
+        onMouseEnter={handlePrefetch}
+        onFocus={handlePrefetch}
         {...longPressProps}
         style={{
           WebkitUserSelect: 'none',
@@ -324,22 +353,25 @@ function ShortDramaCard({
             </div>
           </div>
 
-          {/* 集数标识 - Netflix 统一风格 - 只在集数>1时显示 */}
-          {showEpisodeCount && (
-            <div className="absolute top-2 left-2 flex items-center overflow-hidden rounded-md shadow-lg transition-all duration-300 ease-out group-hover:scale-105 bg-black/70 backdrop-blur-sm px-2 py-0.5">
-              <span className="flex items-center text-[10px] font-medium text-white/80">
-                {realEpisodeCount} 集
-              </span>
-            </div>
-          )}
+          {/* 左上角标识组 - 垂直堆叠避免重叠 */}
+          <div className="absolute top-2 left-2 flex flex-col gap-1.5 z-10">
+            {/* 集数标识 - Netflix 统一风格 - 只在集数>1时显示 */}
+            {showEpisodeCount && (
+              <div className="flex items-center overflow-hidden rounded-md shadow-lg transition-all duration-300 ease-out group-hover:scale-105 bg-black/70 backdrop-blur-sm px-2 py-0.5">
+                <span className="flex items-center text-[10px] font-medium text-white/80">
+                  {realEpisodeCount} 集
+                </span>
+              </div>
+            )}
 
-          {/* 评分 - 使用vote_average字段 */}
-          {drama.vote_average && drama.vote_average > 0 && (
-            <div className="absolute top-2 right-2 flex items-center rounded-lg bg-linear-to-br from-yellow-400 to-orange-500 px-2.5 py-1.5 text-xs font-bold text-white shadow-lg backdrop-blur-sm ring-2 ring-white/30 transition-all duration-300 group-hover:scale-110">
-              <Star className="h-3 w-3 mr-1 fill-current" />
-              {drama.vote_average.toFixed(1)}
-            </div>
-          )}
+            {/* 评分 - 只在评分大于0时显示 */}
+            {Number(drama.vote_average) > 0 && (
+              <div className="flex items-center rounded-lg bg-linear-to-br from-yellow-400 to-orange-500 px-2 py-1 text-[10px] font-bold text-white shadow-lg backdrop-blur-sm ring-2 ring-white/30 transition-all duration-300 group-hover:scale-105">
+                <Star className="h-3 w-3 mr-0.5 fill-current" />
+                {drama.vote_average.toFixed(1)}
+              </div>
+            )}
+          </div>
 
           {/* 收藏按钮 - 右下角 */}
           <button

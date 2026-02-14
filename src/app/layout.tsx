@@ -3,6 +3,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { cookies } from 'next/headers';
+import { Suspense } from 'react';
 
 import './globals.css';
 
@@ -14,6 +15,7 @@ import { SiteProvider } from '../components/SiteProvider';
 import { ThemeProvider } from '../components/ThemeProvider';
 import { WatchRoomProvider } from '../components/WatchRoomProvider';
 import { DownloadProvider } from '../contexts/DownloadContext';
+import { GlobalCacheProvider } from '../contexts/GlobalCacheContext';
 import { DownloadPanel } from '../components/download/DownloadPanel';
 import ChatFloatingWindow from '../components/watch-room/ChatFloatingWindow';
 import QueryProvider from '../components/QueryProvider';
@@ -68,6 +70,7 @@ export default async function RootLayout({
     process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true';
   let fluidSearch = process.env.NEXT_PUBLIC_FLUID_SEARCH !== 'false';
   let customAdFilterVersion = 0;
+  let aiRecommendEnabled = false;
   let customCategories = [] as {
     name: string;
     type: 'movie' | 'tv';
@@ -92,6 +95,7 @@ export default async function RootLayout({
     }));
     fluidSearch = config.SiteConfig.FluidSearch;
     customAdFilterVersion = config.SiteConfig?.CustomAdFilterVersion || 0;
+    aiRecommendEnabled = config.AIRecommendConfig?.enabled ?? false;
   }
 
   // 将运行时配置注入到全局 window 对象，供客户端在运行时读取
@@ -105,6 +109,9 @@ export default async function RootLayout({
     CUSTOM_CATEGORIES: customCategories,
     FLUID_SEARCH: fluidSearch,
     CUSTOM_AD_FILTER_VERSION: customAdFilterVersion,
+    AI_RECOMMEND_ENABLED: aiRecommendEnabled,
+    // 禁用预告片：Vercel 自动检测，或用户手动设置 DISABLE_HERO_TRAILER=true
+    DISABLE_HERO_TRAILER: process.env.VERCEL === '1' || process.env.DISABLE_HERO_TRAILER === 'true',
   };
 
   return (
@@ -114,6 +121,7 @@ export default async function RootLayout({
           name='viewport'
           content='width=device-width, initial-scale=1.0, viewport-fit=cover'
         />
+        <meta name='color-scheme' content='light dark' />
         <link rel='apple-touch-icon' href='/icons/icon-192x192.png' />
         {/* 将配置序列化后直接写入脚本，浏览器端可通过 window.RUNTIME_CONFIG 获取 */}
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
@@ -133,17 +141,23 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <QueryProvider>
-            <DownloadProvider>
-              <WatchRoomProvider>
-                <SiteProvider siteName={siteName} announcement={announcement}>
-                  <SessionTracker />
-                  {children}
-                  <GlobalErrorIndicator />
-                </SiteProvider>
-                <DownloadPanel />
-                <ChatFloatingWindow />
-              </WatchRoomProvider>
-            </DownloadProvider>
+            <GlobalCacheProvider>
+              <DownloadProvider>
+                <WatchRoomProvider>
+                  <SiteProvider siteName={siteName} announcement={announcement}>
+                    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+                      <SessionTracker />
+                      {children}
+                      <GlobalErrorIndicator />
+                    </Suspense>
+                  </SiteProvider>
+                  <Suspense fallback={null}>
+                    <DownloadPanel />
+                    <ChatFloatingWindow />
+                  </Suspense>
+                </WatchRoomProvider>
+              </DownloadProvider>
+            </GlobalCacheProvider>
           </QueryProvider>
         </ThemeProvider>
       </body>
