@@ -5363,9 +5363,9 @@ const SiteConfigComponent = ({ config, refreshConfig }: { config: AdminConfig | 
     DoubanProxy: '',
     DoubanImageProxyType: 'direct',
     DoubanImageProxy: '',
-    BangumiApiType: 'server',
+    BangumiApiType: 'cmliussss',
     BangumiApiProxy: '',
-    BangumiImageProxyType: 'server',
+    BangumiImageProxyType: 'cmliussss',
     BangumiImageProxy: '',
     EnablePuppeteer: false, // 默认关闭 Puppeteer
     DoubanCookies: '', // 默认无 Cookies
@@ -5406,6 +5406,7 @@ const SiteConfigComponent = ({ config, refreshConfig }: { config: AdminConfig | 
   const bangumiApiTypeOptions = [
     { value: 'server', label: '服务端转发（默认，访问官方 api.bgm.tv）' },
     { value: 'cmliussss', label: 'Bangumi 反代 By CMLiussss（解决服务器被墙）' },
+    { value: 'corsapi', label: 'Cloudflare Worker 代理 By Smone' },
     { value: 'custom', label: '自定义反代地址' },
   ];
 
@@ -5413,6 +5414,7 @@ const SiteConfigComponent = ({ config, refreshConfig }: { config: AdminConfig | 
   const bangumiImageProxyTypeOptions = [
     { value: 'server', label: '服务器代理（默认，由服务器代理请求）' },
     { value: 'cmliussss', label: 'Bangumi 图片 CDN By CMLiussss' },
+    { value: 'corsapi', label: 'Cloudflare Worker 代理 By Smone' },
     { value: 'direct', label: '直连（浏览器直接请求 lain.bgm.tv）' },
     { value: 'custom', label: '自定义代理' },
   ];
@@ -5460,9 +5462,9 @@ const SiteConfigComponent = ({ config, refreshConfig }: { config: AdminConfig | 
         DoubanImageProxyType:
           config.SiteConfig.DoubanImageProxyType || 'direct',
         DoubanImageProxy: config.SiteConfig.DoubanImageProxy || '',
-        BangumiApiType: config.SiteConfig.BangumiApiType || 'server',
+        BangumiApiType: config.SiteConfig.BangumiApiType || 'cmliussss',
         BangumiApiProxy: config.SiteConfig.BangumiApiProxy || '',
-        BangumiImageProxyType: config.SiteConfig.BangumiImageProxyType || 'server',
+        BangumiImageProxyType: config.SiteConfig.BangumiImageProxyType || 'cmliussss',
         BangumiImageProxy: config.SiteConfig.BangumiImageProxy || '',
         EnablePuppeteer: config.DoubanConfig?.enablePuppeteer || false,
         DoubanCookies: config.DoubanConfig?.cookies || '',
@@ -7657,7 +7659,10 @@ const NetDiskConfig = ({
     enabled: true,
     pansouUrl: 'https://so.252035.xyz',
     timeout: 30,
-    enabledCloudTypes: ['baidu', 'aliyun', 'quark', 'guangya', 'tianyi', 'uc', 'mobile', '115', 'pikpak', 'xunlei', '123', 'magnet', 'ed2k']
+    enabledCloudTypes: ['baidu', 'aliyun', 'quark', 'guangya', 'tianyi', 'uc', 'mobile', '115', 'pikpak', 'xunlei', '123', 'magnet', 'ed2k'],
+    token: '',
+    username: '',
+    password: '',
   });
 
   // 网盘类型选项
@@ -7684,7 +7689,10 @@ const NetDiskConfig = ({
         enabled: config.NetDiskConfig.enabled ?? true,
         pansouUrl: config.NetDiskConfig.pansouUrl || 'https://so.252035.xyz',
         timeout: config.NetDiskConfig.timeout || 30,
-        enabledCloudTypes: config.NetDiskConfig.enabledCloudTypes || ['baidu', 'aliyun', 'quark', 'tianyi', 'uc']
+        enabledCloudTypes: config.NetDiskConfig.enabledCloudTypes || ['baidu', 'aliyun', 'quark', 'tianyi', 'uc'],
+        token: config.NetDiskConfig.token || '',
+        username: config.NetDiskConfig.username || '',
+        password: config.NetDiskConfig.password || '',
       });
     }
   }, [config]);
@@ -7809,6 +7817,52 @@ const NetDiskConfig = ({
               onChange={(e) => setNetDiskSettings(prev => ({ ...prev, timeout: parseInt(e.target.value) || 30 }))}
               className='w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500'
             />
+          </div>
+
+          {/* 认证配置 */}
+          <div className='space-y-4 pt-2 border-t border-gray-200 dark:border-gray-700'>
+            <div>
+              <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300 mb-1'>认证配置（可选）</h4>
+              <p className='text-xs text-gray-500 dark:text-gray-400'>如果您的 PanSou 实例启用了认证，填写以下任意一种方式。用户名+密码优先级高于 Token。</p>
+            </div>
+            <div className='space-y-2'>
+              <label className='block text-sm font-medium text-gray-700 dark:text-gray-300'>
+                Bearer Token
+              </label>
+              <input
+                type='password'
+                value={netDiskSettings.token}
+                onChange={(e) => setNetDiskSettings(prev => ({ ...prev, token: e.target.value }))}
+                placeholder='留空则不使用 Token 认证'
+                className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500'
+              />
+            </div>
+            <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+              <div className='space-y-2'>
+                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300'>
+                  用户名
+                </label>
+                <input
+                  type='text'
+                  value={netDiskSettings.username}
+                  onChange={(e) => setNetDiskSettings(prev => ({ ...prev, username: e.target.value }))}
+                  placeholder='PanSou 登录用户名'
+                  className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500'
+                />
+              </div>
+              <div className='space-y-2'>
+                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300'>
+                  密码
+                </label>
+                <input
+                  type='password'
+                  value={netDiskSettings.password}
+                  onChange={(e) => setNetDiskSettings(prev => ({ ...prev, password: e.target.value }))}
+                  placeholder='PanSou 登录密码'
+                  className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500'
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>
